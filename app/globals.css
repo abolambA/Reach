@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=Geist:wght@300..800&family=JetBrains+Mono:wght@400..600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: #F4EEE3;
+  --paper-2: #ECE3D2;
+  --paper-3: #E2D6BF;
+  --ink: #1C1E26;
+  --ink-2: #3A3F4B;
+  --ink-3: #6B7280;
+  --ink-4: #9CA3AF;
+  --rule: rgba(28, 30, 38, 0.10);
+  --rule-2: rgba(28, 30, 38, 0.18);
+  --accent: #B85450;
+  --gold: #B58339;
+  --success: #5C7D4F;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Geist', system-ui, sans-serif;
+  letter-spacing: -0.005em;
+  font-feature-settings: "ss01", "ss02", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+.serif { font-family: 'Fraunces', Georgia, serif; letter-spacing: -0.02em; }
+.mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
+
+::selection { background: var(--ink); color: var(--paper); }
+
+.scrollable { scrollbar-width: thin; scrollbar-color: var(--rule-2) transparent; }
+.scrollable::-webkit-scrollbar { width: 6px; }
+.scrollable::-webkit-scrollbar-thumb { background: var(--rule-2); border-radius: 3px; }
+.scrollable::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fade-in 0.32s ease-out; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
+
+textarea, input { font-family: inherit; }
+button { font-family: inherit; cursor: pointer; }

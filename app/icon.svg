@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- LinkedIn-blue rounded square -->
+  <rect width="64" height="64" rx="14" fill="#0A66C2"/>
+
+  <!-- Soft inner gradient for depth -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1278D8"/>
+      <stop offset="1" stop-color="#0A66C2"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FBF7F0"/>
+      <stop offset="1" stop-color="#F4EEE3"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+
+  <!-- Speech bubble with tail down-left -->
+  <path d="M 15 12
+           L 49 12
+           Q 54 12 54 17
+           L 54 33
+           Q 54 38 49 38
+           L 28 38
+           L 19 48
+           L 23 38
+           L 15 38
+           Q 10 38 10 33
+           L 10 17
+           Q 10 12 15 12 Z"
+        fill="url(#bubble)"/>
+
+  <!-- Three message dots -->
+  <circle cx="21" cy="25" r="3.2" fill="#0A66C2"/>
+  <circle cx="32" cy="25" r="3.2" fill="#0A66C2"/>
+  <circle cx="43" cy="25" r="3.2" fill="#0A66C2"/>
+</svg>

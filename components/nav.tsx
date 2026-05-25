@@ -14,7 +14,6 @@ export default function Nav() {
     { href: '/search', label: 'Search' },
     { href: '/goals', label: 'Goals' },
     { href: '/style', label: 'Style' },
-    { href: '/import', label: 'Import' },
   ];
 
   return (

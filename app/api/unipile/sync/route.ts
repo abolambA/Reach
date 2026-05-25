@@ -3,6 +3,8 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { listChats, listMessages, unipileConfigured } from '@/lib/unipile';
 import { DEFAULT_OWNER_ID } from '@/lib/types';
 
+export const dynamic = 'force-dynamic';
+
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 

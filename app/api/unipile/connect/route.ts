@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { unipileConfigured, createHostedAuthLink } from '@/lib/unipile';
 
+export const dynamic = 'force-dynamic';
+
 export const runtime = 'nodejs';
 
 export async function GET() {

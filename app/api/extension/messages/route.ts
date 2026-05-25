@@ -126,6 +126,30 @@ export async function POST(req: Request) {
     }
 
     await logIngest('messages', source_url || null, totalMessages, threads[0]);
+
+    // Auto-classify any threads that don't yet have an AI draft.
+    // Fire-and-forget — we return to the extension immediately, classification runs in background.
+    try {
+      const { data: pendingDecisions } = await admin
+        .from('decisions')
+        .select('thread_id')
+        .is('ai_classified_at', null)
+        .limit(20);
+      const threadIdsToClassify = (pendingDecisions || []).map((d: any) => d.thread_id);
+      if (threadIdsToClassify.length > 0) {
+        // Don't await — let it run in background. Use the deployed URL or localhost.
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+          || (req.headers.get('host') ? `https://${req.headers.get('host')}` : 'http://localhost:3000');
+        fetch(`${siteUrl}/api/classify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thread_ids: threadIdsToClassify }),
+        }).catch(e => console.error('background classify failed:', e));
+      }
+    } catch (e) {
+      console.error('classify trigger error:', e);
+    }
+
     return NextResponse.json(
       { ok: true, threads: totalThreads, messages: totalMessages },
       { headers: cors() },

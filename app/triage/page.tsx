@@ -223,8 +223,40 @@ export default function TriagePage() {
           />
         </div>
         <button
+          onClick={async () => {
+            const pendingThreadIds = threads
+              .filter(t => {
+                const d = decisions[t.id];
+                return !d?.ai_classified_at;
+              })
+              .map(t => t.id)
+              .slice(0, 30);
+            if (pendingThreadIds.length === 0) {
+              alert('All threads already have AI drafts.');
+              return;
+            }
+            const ok = confirm(`Classify ${pendingThreadIds.length} pending thread${pendingThreadIds.length === 1 ? '' : 's'}? This will use Gemini to draft replies.`);
+            if (!ok) return;
+            const res = await fetch('/api/classify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ thread_ids: pendingThreadIds }),
+            });
+            if (res.ok) {
+              alert('Done. Refresh the page to see the drafts.');
+              window.location.reload();
+            } else {
+              const err = await res.text();
+              alert('Classify failed: ' + err);
+            }
+          }}
+          className="ml-auto px-3 py-1 rounded-full bg-[var(--ink)] text-[var(--paper)] text-[11px] font-medium hover:opacity-90"
+        >
+          ✨ Classify pending
+        </button>
+        <button
           onClick={() => setShowShortcuts(true)}
-          className="ml-auto mono text-[10px] uppercase tracking-[0.12em] text-[var(--ink-3)] hover:text-[var(--ink)]"
+          className="mono text-[10px] uppercase tracking-[0.12em] text-[var(--ink-3)] hover:text-[var(--ink)]"
         >
           shortcuts (?)
         </button>

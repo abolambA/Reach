@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { checkAuth, cors } from '../_helpers';
 
+export const dynamic = 'force-dynamic';
+
 export const runtime = 'nodejs';
 
 export async function OPTIONS() {

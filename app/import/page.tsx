@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Nav from '@/components/nav';
 
 export default function ImportPage() {
@@ -92,15 +93,26 @@ export default function ImportPage() {
       <Nav />
       <main className="max-w-[820px] mx-auto px-7 py-12 fade-in">
         <div className="mono text-[10px] uppercase tracking-[0.22em] text-[var(--ink-3)] mb-3">
-          Step 01 — Import messages
+          Backup · CSV import
         </div>
         <h1 className="serif text-[48px] font-normal leading-[1.08] tracking-tight mb-3">
-          Bring the inbox in.
+          Manual fallback.
         </h1>
-        <p className="text-[var(--ink-2)] text-[15px] leading-relaxed mb-10 max-w-xl">
-          Two ways to pull LinkedIn messages into Lumen. CSV is free and works
-          today. Unipile is a paid live sync.
+        <p className="text-[var(--ink-2)] text-[15px] leading-relaxed mb-6 max-w-xl">
+          The <strong>Chrome extension is the primary way</strong> data flows in — install it, browse LinkedIn normally,
+          everything indexes automatically into the same unified database.
         </p>
+        <div className="bg-[var(--paper-2)] border-l-[3px] border-[var(--accent)] rounded-lg p-4 mb-10 max-w-xl">
+          <div className="mono text-[10px] uppercase tracking-[0.2em] text-[var(--ink-3)] mb-1.5">
+            When to use this page
+          </div>
+          <p className="text-[13px] text-[var(--ink-2)] leading-relaxed">
+            Use CSV import only if (1) the extension can't be installed, (2) you want to seed historical messages
+            beyond what's currently in his inbox, or (3) Unipile auto-sync is configured. Otherwise: close this tab,
+            install the extension, and let it run.
+          </p>
+          <Link href="/" className="inline-block mt-2 text-[12px] underline">← Back to Overview</Link>
+        </div>
 
         <div className="mb-8">
           <label className="mono text-[9px] uppercase tracking-[0.22em] text-[var(--ink-3)] block mb-2">
@@ -119,7 +131,7 @@ export default function ImportPage() {
         <section className="mb-8 p-7 bg-[var(--paper-2)] rounded-2xl">
           <div className="flex items-baseline justify-between mb-1">
             <h2 className="serif text-2xl font-normal italic">CSV upload</h2>
-            <span className="mono text-[10px] uppercase tracking-[0.18em] text-[var(--success)]">Free · works today</span>
+            <span className="mono text-[10px] uppercase tracking-[0.18em] text-[var(--ink-3)]">Fallback only</span>
           </div>
           <p className="text-[var(--ink-2)] text-[13px] mb-5">
             Get the export from{' '}

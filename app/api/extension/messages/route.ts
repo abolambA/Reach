@@ -102,17 +102,18 @@ export async function POST(req: Request) {
         direction: m.direction,
       }));
 
-      // Naive dedupe: delete any existing rows for this thread that match, then insert.
-      // For a passive observer this is fine; volume is low.
+      // Naive dedupe: only insert messages whose CONTENT we haven't seen in this thread.
+      // (Previously we keyed on `sent_at|content` — but re-scans of the same thread can
+      //  generate fresh timestamps, which let duplicate content slip in over and over.)
       const { data: existing } = await admin
         .from('messages')
-        .select('id, sent_at, content')
+        .select('id, content')
         .eq('thread_id', threadRow.id);
-      const existingKeys = new Set(
-        (existing || []).map(e => `${e.sent_at}|${(e.content || '').slice(0, 60)}`),
+      const existingContentKeys = new Set(
+        (existing || []).map(e => (e.content || '').slice(0, 200)),
       );
       const newMsgs = msgRows.filter(
-        m => !existingKeys.has(`${m.sent_at}|${(m.content || '').slice(0, 60)}`),
+        m => !existingContentKeys.has((m.content || '').slice(0, 200)),
       );
       if (newMsgs.length > 0) {
         await admin.from('messages').insert(newMsgs);

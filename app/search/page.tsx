@@ -72,7 +72,7 @@ export default function SearchPage() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && searchPeople()}
-            placeholder="Search a name, role, or company…"
+            placeholder="Search a name, role, company, or paste a LinkedIn profile URL…"
             className="flex-1 px-4 py-3 bg-[var(--paper-2)] border border-[var(--rule)] rounded-lg text-[15px] outline-none focus:border-[var(--ink-3)]"
           />
           <button
@@ -83,6 +83,26 @@ export default function SearchPage() {
             {searching ? '…' : 'Search'}
           </button>
         </div>
+        <div className="text-[11px] text-[var(--ink-3)] -mt-3 mb-6">
+          Tip: paste a full LinkedIn URL like <span className="mono">linkedin.com/in/sarah-chen</span> for exact-match lookups (no name guessing).
+        </div>
+
+        {!searching && query && results.length === 0 && (
+          <div className="bg-[var(--paper-2)] border-l-[3px] border-[var(--accent)] rounded-xl p-5 mb-8">
+            <div className="mono text-[10px] uppercase tracking-[0.2em] text-[var(--ink-3)] mb-2">
+              Not in your indexed graph yet
+            </div>
+            <p className="text-[13px] text-[var(--ink-2)] leading-relaxed">
+              Reach only sees people the extension has already indexed from your normal LinkedIn browsing.
+              To add this person: open their LinkedIn profile in your browser (with the extension active), wait 3 seconds for the page to settle,
+              then come back here and search again.
+            </p>
+            <p className="text-[12px] text-[var(--ink-3)] mt-3">
+              For finding people in adjacent networks: visit one of your 1st-degree connection's profiles whose connections page might include this person.
+              Each profile you visit deepens the graph.
+            </p>
+          </div>
+        )}
 
         {results.length > 0 && (
           <div className="space-y-2 mb-8">

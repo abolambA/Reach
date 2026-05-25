@@ -86,3 +86,76 @@ export function formatRelativeDate(d: string | null | undefined): string {
     return '';
   }
 }
+
+// ============================================================
+// REACH v2 — graph, goals, actions
+// ============================================================
+
+export type Person = {
+  urn: string;
+  public_id: string | null;
+  name: string | null;
+  headline: string | null;
+  company: string | null;
+  position: string | null;
+  location: string | null;
+  profile_url: string | null;
+  profile_img: string | null;
+  industry: string | null;
+  is_self: boolean;
+  is_first_degree: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+  derived_categories: string[];
+  notes: string | null;
+};
+
+export type Edge = {
+  src_urn: string;
+  dst_urn: string;
+  edge_type: 'connected' | 'follows' | 'engages_with' | 'messaged';
+  observed_at: string;
+  confidence: number;
+};
+
+export type Post = {
+  urn: string;
+  author_urn: string | null;
+  content: string | null;
+  posted_at: string | null;
+  like_count: number;
+  comment_count: number;
+  repost_count: number;
+  is_self_authored: boolean;
+  observed_at: string;
+};
+
+export type Goal = {
+  id: string;
+  label: string;
+  kind: 'followers' | 'role_target' | 'named_person' | 'custom';
+  criteria: Record<string, any>;
+  target_value: number | null;
+  current_value: number;
+  status: 'active' | 'paused' | 'done' | 'archived';
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Action = {
+  id: string;
+  goal_id: string | null;
+  kind: 'reply' | 'outreach' | 'intro_request' | 'comment' | 'react' | 'follow' | 'connect';
+  target_urn: string | null;
+  target_post_urn: string | null;
+  via_urn: string | null;
+  draft: string | null;
+  rationale: string | null;
+  status: 'queued' | 'approved' | 'sent' | 'skipped' | 'expired';
+  priority: number;
+  created_at: string;
+  approved_at: string | null;
+  sent_at: string | null;
+  expires_at: string | null;
+};

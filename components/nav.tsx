@@ -8,9 +8,13 @@ export default function Nav() {
 
   const tabs = [
     { href: '/', label: 'Overview' },
-    { href: '/triage', label: 'Triage' },
+    { href: '/queue', label: 'Queue' },
+    { href: '/triage', label: 'Inbox' },
+    { href: '/network', label: 'Network' },
+    { href: '/search', label: 'Search' },
+    { href: '/goals', label: 'Goals' },
+    { href: '/style', label: 'Style' },
     { href: '/import', label: 'Import' },
-    { href: '/export', label: 'Export' },
   ];
 
   return (
@@ -18,18 +22,18 @@ export default function Nav() {
       <div className="max-w-[1400px] mx-auto flex items-center justify-between px-7 py-3.5">
         <div className="flex items-baseline gap-3.5">
           <Link href="/" className="serif text-[26px] italic font-medium tracking-tight">
-            Lumen
+            Reach
           </Link>
           <span className="mono text-[10px] uppercase tracking-[0.18em] text-[var(--ink-3)]">
-            · inbox concluder
+            · networks, mapped
           </span>
         </div>
-        <nav className="flex items-center gap-1">
+        <nav className="flex items-center gap-1 flex-wrap">
           {tabs.map(t => (
             <Link
               key={t.href}
               href={t.href}
-              className={`px-3 py-1.5 rounded-full text-[12px] mono uppercase tracking-[0.1em] transition-colors ${
+              className={`px-2.5 py-1.5 rounded-full text-[11px] mono uppercase tracking-[0.1em] transition-colors ${
                 pathname === t.href
                   ? 'bg-[var(--ink)] text-[var(--paper)]'
                   : 'text-[var(--ink-2)] hover:bg-[var(--paper-2)]'

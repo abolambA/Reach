@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Lumen — Inbox Concluder',
-  description: 'A focused way to conclude every LinkedIn conversation.',
+  title: 'Reach — your LinkedIn network, mapped',
+  description: 'Map the network. Find the path. Send what matters.',
 };
 
 export default function RootLayout({

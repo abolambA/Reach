@@ -127,6 +127,42 @@ export async function POST(req: Request) {
 
     await logIngest('messages', source_url || null, totalMessages, threads[0]);
 
+    // Create edge_type='messaged' from self → each unique non-self sender that has a URN.
+    // This lets path-finding traverse DM relationships in the graph.
+    try {
+      const { data: self } = await admin
+        .from('people')
+        .select('urn')
+        .eq('is_self', true)
+        .maybeSingle();
+      if (self?.urn) {
+        const senderUrns = new Set<string>();
+        for (const t of threads) {
+          for (const m of t.messages || []) {
+            if (m.sender_urn && m.sender_urn !== self.urn) senderUrns.add(m.sender_urn);
+          }
+          for (const u of t.participant_urns || []) {
+            if (u && u !== self.urn) senderUrns.add(u);
+          }
+        }
+        if (senderUrns.size > 0) {
+          const edgeRows = Array.from(senderUrns).map(urn => ({
+            src_urn: self.urn,
+            dst_urn: urn,
+            edge_type: 'messaged' as const,
+            confidence: 1.0,
+            observed_at: new Date().toISOString(),
+          }));
+          await admin.from('edges').upsert(edgeRows, {
+            onConflict: 'src_urn,dst_urn,edge_type',
+            ignoreDuplicates: false,
+          });
+        }
+      }
+    } catch (e) {
+      console.error('messaged-edge creation failed:', e);
+    }
+
     // Auto-classify any threads that don't yet have an AI draft.
     // Fire-and-forget — we return to the extension immediately, classification runs in background.
     try {

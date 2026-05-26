@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Reach</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="logo">Reach</div>
+    <div class="sub">network indexer</div>
+  </header>
+
+  <section id="status-section">
+    <div class="status-row">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Checking connection…</span>
+    </div>
+  </section>
+
+  <section>
+    <h3>Indexed so far</h3>
+    <div id="stats" class="stats-grid">
+      <div class="stat"><div class="stat-label">People</div><div class="stat-value" id="stat-people">0</div></div>
+      <div class="stat"><div class="stat-label">Edges</div><div class="stat-value" id="stat-edges">0</div></div>
+      <div class="stat"><div class="stat-label">Posts</div><div class="stat-value" id="stat-posts">0</div></div>
+      <div class="stat"><div class="stat-label">Messages</div><div class="stat-value" id="stat-messages">0</div></div>
+    </div>
+    <div class="last-at" id="last-at"></div>
+  </section>
+
+  <section>
+    <h3>Settings</h3>
+    <label>API URL</label>
+    <input type="text" id="api" placeholder="https://your-app.vercel.app">
+    <label>Ingest token</label>
+    <input type="password" id="token" placeholder="REACH_INGEST_TOKEN value">
+    <button id="save">Save</button>
+    <button id="ping" class="secondary">Test connection</button>
+  </section>
+
+  <footer>
+    <a href="#" id="open-app">Open Reach →</a>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

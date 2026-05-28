@@ -10,6 +10,7 @@ export default function Nav() {
     { href: '/', label: 'Overview' },
     { href: '/queue', label: 'Queue' },
     { href: '/triage', label: 'Inbox' },
+    { href: '/paste', label: 'Paste' },
     { href: '/network', label: 'Network' },
     { href: '/search', label: 'Search' },
     { href: '/goals', label: 'Goals' },

@@ -1,235 +1,183 @@
-# Reach
+# Lumen
 
-A LinkedIn network intelligence platform. Maps your connections, finds paths to people you want to reach, drafts outreach in your voice, and keeps your inbox from owning your week.
+### Read every LinkedIn DM. Reply to none of them yourself.
 
-**Live app:** https://linkedin-messages-concluder.vercel.app
+A triage cockpit for the people drowning in their LinkedIn inbox. Hand it your messages CSV — it hands back every thread classified, every reply drafted, and a keyboard-first interface that gets you through 200 conversations in 10 minutes.
 
----
-
-## What's in this repo
-
-```
-reach/
-├── app/                Next.js 14 web app (Reach UI + API routes)
-├── components/         Shared React components
-├── lib/                Supabase client, Gemini wrapper, RAG retrieval, types
-├── supabase/migrations/  Versioned schema migrations
-├── extension/          Chrome extension (passive LinkedIn ingestion)
-├── sql/                One-time data cleanup / fix scripts
-├── package.json
-└── README.md
-```
-
-The web app and the extension live in the same repository so a single `git push` updates both. Vercel watches the repo root and ignores `extension/`.
+> *"LinkedIn DMs are where ambition goes to die. This is the resuscitation."*
 
 ---
 
-## Architecture
+## What it does
 
-```
-┌──────────────────────┐                    ┌─────────────────────────┐
-│  Chrome extension    │   HTTPS + token    │  Next.js app on Vercel  │
-│  (passive scrape of  │ ─────────────────▶ │  - /api/extension/*     │
-│   LinkedIn DOM)      │                    │  - /api/classify        │
-└──────────────────────┘                    │  - /api/path            │
-                                            │  - /api/plan            │
-                                            │  - /api/search/people   │
-                                            └────────────┬────────────┘
-                                                         │
-                                                         ▼
-                                            ┌─────────────────────────┐
-                                            │  Supabase (Postgres +   │
-                                            │  pgvector)              │
-                                            │  - people, edges        │
-                                            │  - threads, messages    │
-                                            │  - goals, actions       │
-                                            │  - style_corpus (vec)   │
-                                            └────────────┬────────────┘
-                                                         │
-                                                         ▼
-                                            ┌─────────────────────────┐
-                                            │  Google Gemini          │
-                                            │  - 2.5 Flash (classify, │
-                                            │    drafting)            │
-                                            │  - text-embedding-004   │
-                                            └─────────────────────────┘
-```
+You drop in the CSV that LinkedIn lets you export. The platform reads every conversation and gives you:
 
-### How the pieces fit together
+- **8 categories** — Sales pitch · Recruiter · Job inquiry · Networking · Real question · Personal · Spam · Other
+- **A draft reply for each one** — written in your sender's tone, capped at 60 words
+- **A queue you fly through with the keyboard** — `J/K` to move, `D` mark replied, `A` archive, `F` follow up, `S` skip
+- **State that lives in Postgres** — close the tab, come back next week, you're exactly where you left off
+- **Zero login friction** — single shared URL, no email/password, no magic links
 
-1. The **Chrome extension** runs in your LinkedIn browser tab. It watches what you naturally browse — your profile, your connections page, your messaging inbox, your feed — and ingests structured data via HTTPS POST to the Reach backend. It never auto-clicks, never auto-sends, never logs in on your behalf.
-
-2. The **Next.js app** stores everything in Supabase and exposes a UI for working with it. The API routes accept ingest from the extension (bearer-token auth) and serve the UI (no user-facing auth — single-user mode for now).
-
-3. **Gemini** classifies inbound messages into categories (Sales / Job / Network / Question / Personal / Spam / Other), drafts replies in the user's voice using RAG against a personal style corpus, and embeds text for similarity search.
-
-4. **Supabase** with pgvector stores everything. A recursive SQL function `find_path` does breadth-first search across the connection graph to find intros.
+It looks like an editorial newspaper, not a SaaS dashboard. Fraunces serif, cream paper, terracotta accents. Built for *reading*, which is what triage actually is.
 
 ---
 
-## Features
+## Why this exists
 
-### Network mapping
-The extension passively captures everyone you encounter on LinkedIn — connections, messaging contacts, post authors, profile views. Each person stored with name, headline, company, position, profile URL, and a 1st-degree flag if they're in your direct network. Browse them all at `/network`.
+LinkedIn has no inbox UI worth defending. No filters. No bulk actions. No public messaging API. Just an infinite scroll of *"Hope this finds you well!"* recruiter pings buried under the messages that actually matter — the introductions from the parent of a kid in your school, the journalist who saw your work, the founder you'd actually want to call back.
 
-### Path finding
-Open `/search`, type a name or paste a LinkedIn URL. Reach shows the shortest path from you to that person through your captured graph. If they're a direct connection, you get a 1-hop path (DM them directly). If they're a friend-of-a-friend, you get a 2-hop intro path (ask the mutual to make the introduction).
-
-### Inbox triage
-The extension captures conversation list previews from `/messaging/`. Gemini classifies each incoming message into a category and drafts a context-aware reply using your style brief. Tap to copy the draft, paste in LinkedIn, send.
-
-> ⚠️ As of this writing, LinkedIn has obfuscated the messaging DOM heavily enough that the extension's auto-ingest of conversations is unreliable. The web app supports manual paste-in as a fallback. See "Known limitations" below.
-
-### Goal-driven outreach
-At `/goals`, define what you're trying to do (build followers, reach 100 hires, target named accounts, custom). Click "Plan" — Reach finds candidates from your graph, computes the path to each, and drafts personalized outreach using RAG against your style corpus.
-
-### Action queue
-Tinder-style approval card stack at `/queue`. Each card is a drafted message with rationale ("Why this person, why now"). Swipe approve → copy to clipboard. Swipe skip → moves on. Actions auto-expire after 14 days.
-
-### Style brief & corpus
-At `/style`, paste in messages you've actually sent on LinkedIn. They get embedded into pgvector. When drafting a new reply, Reach retrieves the 5 most similar past messages and instructs Gemini to write in that voice. The more samples, the more the drafts sound like you.
-
----
-
-## The Chrome extension
-
-Lives in `extension/`. Manifest V3, Brave/Chrome compatible.
-
-### What it does
-
-| Page you visit                              | What gets captured                                        |
-| ------------------------------------------- | --------------------------------------------------------- |
-| `linkedin.com/in/yourself/`                 | Sets your profile as "self" (path-finding starting node)  |
-| `linkedin.com/in/anyone-else/`              | Indexes that person + their headline + activity posts     |
-| `linkedin.com/mynetwork/.../connections/`   | Indexes the visible connections, marks them as 1st-degree |
-| `linkedin.com/messaging/`                   | Indexes conversation list previews                        |
-| `linkedin.com/messaging/thread/{id}/`       | Indexes the conversation list (open thread DOM is hard)   |
-| `linkedin.com/feed/`                        | Captures post authors and their headlines                 |
-
-### How it talks to the backend
-
-Every ingest POST uses a bearer token (`REACH_INGEST_TOKEN`). The token is set once in the extension's popup (API URL + token), stored in `chrome.storage.local`. Requests go to `/api/extension/{people,edges,messages,posts,interactions,ping,self,stats}`.
-
-### Loading it
-
-1. Open `brave://extensions/` (or `chrome://extensions/`)
-2. Enable Developer Mode
-3. Click "Load unpacked"
-4. Select the `extension/` folder from this repo
-5. Open the extension's popup → paste API URL and token → Save → Test connection
-
-After any code edit, click the ↻ icon in `brave://extensions/` and refresh your LinkedIn tab.
-
-### What it does NOT do
-
-- It does **not** auto-send messages
-- It does **not** auto-connect or auto-follow
-- It does **not** scrape pages you didn't visit
-- It does **not** replay session cookies on a server
-- It does **not** authenticate as you anywhere
-
-This is a deliberate design choice. LinkedIn's account-detection systems look for automated session activity. Reach extension only indexes what you would have seen anyway by browsing normally.
-
----
-
-## Setup
-
-### Prerequisites
-
-- Node 18+
-- A Supabase project
-- A Gemini API key
-- A Vercel account (for deployment) or `npm run dev` for local
-
-### Environment variables
-
-Copy `.env.example` to `.env.local`:
-
-```bash
-cp .env.example .env.local
-```
-
-Required:
-
-```
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-SUPABASE_SECRET_KEY=sb_secret_...
-GEMINI_API_KEY=AIza...
-NEXT_PUBLIC_SITE_URL=http://localhost:3000   # or your prod URL
-REACH_INGEST_TOKEN=<generate with: openssl rand -hex 32>
-```
-
-### Database
-
-Run the migrations in order in the Supabase SQL editor:
-
-```
-supabase/migrations/001_initial.sql        — initial v1 schema
-supabase/migrations/002_remove_auth.sql    — disable RLS for single-user mode
-supabase/migrations/003_reach_v2.sql       — people/edges/posts/goals/actions/pgvector
-```
-
-For one-off data fixes accumulated during development, see `sql/`:
-
-```
-006_fix_concatenated_names.sql      — split "NameHeadline" rows that the old extractor produced
-007_clean_reset.sql                 — wipe captured data, preserve goals/style
-008_remove_false_positives.sql      — delete UI-label "people" records (Sort by:, Connections)
-009_wipe_bad_messages.sql           — wipe message data from buggy v0.3.4
-010_wipe_messages_again.sql         — same, plus notification-imposter rows
-```
-
-A fresh setup only needs `001 → 002 → 003`. The `sql/` scripts are historical fixes preserved for traceability.
-
-### Local development
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
-### Deployment
-
-Push to GitHub. Vercel auto-deploys from `main`. Set the same env vars in the Vercel project settings (Production + Preview + Development).
+This is the bridge between *"I have 200 unread messages"* and *"I responded to the 12 that mattered."*
 
 ---
 
 ## Stack
 
-| Layer       | Choice                                                                     |
-| ----------- | -------------------------------------------------------------------------- |
-| Frontend    | Next.js 14 App Router, TypeScript, Tailwind                                |
-| Backend     | Next.js API routes (Node runtime), bearer-token auth                       |
-| Database    | Supabase (Postgres 15) + pgvector for embeddings                           |
-| AI          | Google Gemini 2.5 Flash (classify, draft) + text-embedding-004 (768 dim)   |
-| Hosting     | Vercel                                                                     |
-| Extension   | Vanilla JS, Manifest V3, no build step                                     |
-
-Design language: Fraunces serif headings, Geist sans body, JetBrains Mono for code. Editorial / "magazine" feel — cream paper background, terracotta accents.
+| Layer | Tool |
+|---|---|
+| App framework | Next.js 14 (App Router) + TypeScript |
+| Database | Supabase (Postgres) |
+| AI engine | Gemini 2.5 Flash via `@google/genai` |
+| Styling | Tailwind + Fraunces / Geist / JetBrains Mono |
+| Hosting | Vercel |
+| Live LinkedIn sync *(optional)* | [Unipile](https://unipile.com) |
 
 ---
 
-## Known limitations
+## How a message moves through it
 
-**Messaging DOM is unreliable.** LinkedIn frequently redesigns the messaging interface and obfuscates class names. The extension's conversation-list extraction is brittle and may capture 0 conversations even when they're visible. The codebase has a fallback path for manual paste-in classification. For production-grade messaging automation, Unipile's hosted LinkedIn API is the recommended upgrade path — placeholder routes are already scaffolded at `app/api/unipile/`.
-
-**Single-user mode.** No login. Anyone with the URL and the ingest token can read/write. Use `ALLOWED_EMAILS` env var with the future auth migration when productionizing for a real team.
-
-**No deep crawling.** The extension never visits pages you didn't navigate to yourself. This is a safety feature, not a bug. To map 2nd-degree connections, you'd need to actually visit those profiles.
-
-**Vercel cold starts.** First request after idle can take 2-3 seconds. Not an issue once warm.
+```
+LinkedIn CSV
+    │
+    ▼
+Parser groups rows by conversation_id
+    │
+    ▼
+Threads + messages written to Supabase
+    │
+    ▼
+Gemini classifies in batches of 4
+    │   ├─ category
+    │   ├─ one-sentence summary
+    │   ├─ draft reply (or "" if not worth one)
+    │   └─ urgency + worth_replying flag
+    ▼
+Triage UI: queue → thread → action panel
+    │
+    ▼
+Decisions saved to Postgres on every change
+    │
+    ▼
+Export everything as a final CSV
+```
 
 ---
 
-## License & ownership
+## Get it running locally — 5 minutes
 
-Private project. Not licensed for redistribution.
+```bash
+git clone https://github.com/abolambA/Linkedin-Messages-Concluder-.git lumen
+cd lumen
+npm install
+cp .env.example .env.local
+```
+
+Fill `.env.local` with your own values:
+
+```ini
+NEXT_PUBLIC_SUPABASE_URL=https://<your-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...
+GEMINI_API_KEY=AIza...
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+Run the two SQL files in `supabase/migrations/` in your Supabase SQL Editor (in order: `001` then `002`).
+
+```bash
+npm run dev
+```
+
+Open **http://localhost:3000**.
 
 ---
 
-## Credits
+## Deploy to Vercel — 60 seconds via CLI
 
-Built with [Claude](https://claude.ai) as the pair-programming partner across multiple sessions, the long-running conversation log being equal parts spec, design doc, and therapy.
+```bash
+npm i -g vercel
+vercel login
+vercel                   # link + deploy preview in one shot
+
+# push every env var
+vercel env add NEXT_PUBLIC_SUPABASE_URL production
+vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY production
+vercel env add SUPABASE_SECRET_KEY production
+vercel env add GEMINI_API_KEY production
+vercel env add NEXT_PUBLIC_SITE_URL production
+
+vercel --prod
+```
+
+Set `NEXT_PUBLIC_SITE_URL` to the URL Vercel prints after the first deploy.
+
+---
+
+## Three things to know
+
+**There is no auth.** Anyone with the URL gets in. The URL is the password. Don't post it publicly.
+
+**LinkedIn has no public messaging API.** The only two real ways to get messages into this app are the free CSV export (manual) and Unipile ($59/mo, near-real-time). Anyone selling you a third option is either using Unipile under the hood, scraping (will get the account banned), or lying.
+
+**Gemini Flash is fast and basically free.** Free tier gives you 15 requests/min. A 200-thread inbox costs roughly 50 cents on the paid tier.
+
+---
+
+## Importing from LinkedIn
+
+1. **linkedin.com** → top-right profile picture → **Settings & Privacy**
+2. Left sidebar → **Data Privacy** → **Get a copy of your data**
+3. Pick **"Want something in particular?"**
+4. Tick only **Messages** (everything else takes 24 hours; messages-only takes ~10–30 min)
+5. **Request archive** → re-enter your password
+6. Wait for the email titled *"Your LinkedIn data is ready"*
+7. Click the link → download the ZIP → extract → grab `messages.csv`
+8. In Lumen, go to **Import** → drop the CSV → wait for Gemini to finish classifying
+
+---
+
+## Roadmap
+
+- [ ] Real-time Unipile sync via webhooks
+- [ ] Send replies directly through Unipile (today: copy/paste)
+- [ ] Email digest of pending threads
+- [ ] Multi-account support (separate inboxes for different people)
+- [ ] Mobile-friendly triage view
+- [ ] Bulk actions (select N, archive all)
+
+---
+
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `J` / `↓` | Next thread |
+| `K` / `↑` | Previous thread |
+| `D` | Mark replied |
+| `A` | Archive |
+| `F` | Follow up later |
+| `S` | Skip |
+| `/` | Focus search |
+| `?` | Show this list |
+| `Esc` | Close panels |
+
+---
+
+## Built by
+
+A team that got tired of triaging their own LinkedIn inbox by hand.
+
+If you ship something with it, drop a star. If you ship something *because* of it, drop a screenshot.
+
+## License
+
+MIT. Do whatever. The world is better with more inbox-zero people in it.

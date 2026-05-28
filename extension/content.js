@@ -697,7 +697,7 @@
   }
 
   // ============================================================
-  // FLOATING OVERLAY (shadow DOM, draggable)
+  // SLIM RIGHT-EDGE SIDEBAR TAB (shadow DOM)
   // ============================================================
   let overlayShadow = null;
   function injectOverlay() {
@@ -705,72 +705,95 @@
     if (!document.body) return;
     const host = document.createElement('div');
     host.id = 'reach-overlay-host';
-    host.style.cssText = `position:fixed;z-index:2147483647;bottom:24px;right:24px;`;
+    // Pinned to the right edge, vertically centered. Fixed — never draggable.
+    host.style.cssText = `position:fixed;z-index:2147483647;top:50%;right:0;transform:translateY(-50%);`;
     const shadow = host.attachShadow({ mode: 'open' });
     overlayShadow = shadow;
     shadow.innerHTML = `
       <style>
         * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+        .wrap { display: flex; align-items: stretch; }
+        /* The slim always-visible tab on the very edge */
+        .tab {
+          display: flex; flex-direction: column; align-items: center; gap: 6px;
+          background: #1C1E26; color: #F4EEE3;
+          padding: 14px 7px;
+          border-radius: 10px 0 0 10px;
+          cursor: pointer;
+          box-shadow: -2px 0 14px rgba(0,0,0,0.18);
+          align-self: center;
+          transition: padding 0.15s;
+        }
+        .tab:hover { padding-left: 9px; }
+        .tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px currentColor; color: #22c55e; }
+        .tab-dot.idle { background: #eab308; color: #eab308; }
+        .tab-dot.err { background: #ef4444; color: #ef4444; }
+        .tab-dot.unknown { background: #6b7280; color: #6b7280; }
+        .tab-label {
+          writing-mode: vertical-rl; text-orientation: mixed;
+          font-family: 'Fraunces', Georgia, serif; font-style: italic;
+          font-size: 14px; font-weight: 500; letter-spacing: 0.02em;
+          transform: rotate(180deg);
+        }
+        /* The panel that slides out */
         .panel {
           background: #1C1E26; color: #F4EEE3;
-          border-radius: 12px; padding: 12px 14px;
-          min-width: 240px; max-width: 280px;
-          font-size: 12px;
-          box-shadow: 0 6px 28px rgba(0,0,0,0.22), 0 0 0 1px rgba(255,255,255,0.05);
+          border-radius: 12px 0 0 12px; padding: 14px 16px;
+          width: 270px; font-size: 12px;
+          box-shadow: -6px 0 28px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.05);
           user-select: none;
+          /* hidden state: slid off to the right */
+          transition: transform 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.18s;
         }
-        .panel.collapsed { padding: 8px 12px; min-width: 0; cursor: pointer; }
-        .panel.collapsed .body { display: none; }
-        .panel.collapsed .header { cursor: pointer; }
-        .header {
-          display: flex; align-items: center; justify-content: space-between; gap: 8px;
-          cursor: move;
+        .wrap:not(.open) .panel {
+          transform: translateX(100%); opacity: 0; pointer-events: none;
+          position: absolute; right: 0; top: 50%; margin-top: -90px;
         }
+        .wrap.open .tab { display: none; }
+        .header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
         .lhs { display: flex; align-items: center; gap: 6px; }
-        .brand {
-          font-family: 'Fraunces', Georgia, serif;
-          font-style: italic; font-size: 16px; font-weight: 500;
-        }
+        .brand { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 17px; font-weight: 500; }
+        .sub { font-size: 9px; text-transform: uppercase; letter-spacing: 0.16em; opacity: 0.5; margin-top: 1px; }
         .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px currentColor; color: #22c55e; }
         .dot.idle { background: #eab308; color: #eab308; }
         .dot.err { background: #ef4444; color: #ef4444; }
         .dot.unknown { background: #6b7280; color: #6b7280; }
-        .toggle {
-          background: none; border: none; color: inherit; cursor: pointer;
-          padding: 2px 6px; opacity: 0.5; font-size: 14px; line-height: 1;
-        }
-        .toggle:hover { opacity: 1; }
-        .body { margin-top: 10px; }
-        .stats {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
-          padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.08);
-        }
+        .close { background: none; border: none; color: inherit; cursor: pointer; padding: 2px 6px; opacity: 0.5; font-size: 16px; line-height: 1; }
+        .close:hover { opacity: 1; }
+        .status-line { font-size: 10.5px; opacity: 0.7; margin-top: 2px; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; padding: 12px 0; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
         .stat { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
         .stat-l { opacity: 0.55; font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; }
-        .stat-v { font-weight: 600; font-size: 13px; }
+        .stat-v { font-weight: 600; font-size: 14px; }
         .action {
-          display: block; width: 100%; margin-top: 8px; padding: 9px 10px;
-          background: #F4EEE3; color: #1C1E26;
-          border: none; border-radius: 6px;
-          font: inherit; font-weight: 600; font-size: 12px;
-          cursor: pointer; transition: opacity 0.15s;
+          display: block; width: 100%; margin-top: 6px; padding: 9px 10px;
+          background: #F4EEE3; color: #1C1E26; border: none; border-radius: 6px;
+          font: inherit; font-weight: 600; font-size: 12px; cursor: pointer; transition: opacity 0.15s;
         }
         .action:hover { opacity: 0.92; }
-        .action.danger { background: #ef4444; color: #fff; }
-        .action.secondary { background: rgba(255,255,255,0.1); color: #F4EEE3; }
         .action:disabled { opacity: 0.4; cursor: not-allowed; }
         .progress { margin-top: 6px; font-size: 10.5px; opacity: 0.75; min-height: 1em; line-height: 1.3; }
         .stale-note { font-size: 10px; opacity: 0.6; margin-top: 4px; line-height: 1.3; }
+        .openlink { display: block; margin-top: 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.6; text-decoration: none; color: inherit; }
+        .openlink:hover { opacity: 1; }
       </style>
-      <div class="panel" id="panel">
-        <div class="header" id="hdr">
-          <div class="lhs">
-            <span class="dot unknown" id="dot"></span>
-            <span class="brand">Reach</span>
-          </div>
-          <button class="toggle" id="min" title="Minimize">—</button>
+      <div class="wrap" id="wrap">
+        <div class="tab" id="tab" title="Open Reach">
+          <span class="tab-dot unknown" id="tab-dot"></span>
+          <span class="tab-label">Reach</span>
         </div>
-        <div class="body" id="body">
+        <div class="panel" id="panel">
+          <div class="header">
+            <div class="lhs">
+              <span class="dot unknown" id="dot"></span>
+              <div>
+                <div class="brand">Reach</div>
+                <div class="sub">network indexer</div>
+              </div>
+            </div>
+            <button class="close" id="close" title="Collapse">›</button>
+          </div>
+          <div class="status-line" id="status-line">Connecting…</div>
           <div class="stats">
             <div class="stat"><span class="stat-l">People</span><span class="stat-v" id="s-p">0</span></div>
             <div class="stat"><span class="stat-l">Edges</span><span class="stat-v" id="s-e">0</span></div>
@@ -789,62 +812,24 @@
   }
 
   function wireOverlay(host, shadow) {
-    const panel = shadow.getElementById('panel');
-    const hdr = shadow.getElementById('hdr');
-    const min = shadow.getElementById('min');
+    const wrap = shadow.getElementById('wrap');
+    const tab = shadow.getElementById('tab');
+    const close = shadow.getElementById('close');
 
-    // Restore position
-    chrome.storage.local.get('reachOverlayPos').then(({ reachOverlayPos }) => {
-      if (reachOverlayPos) {
-        host.style.right = 'auto';
-        host.style.bottom = 'auto';
-        host.style.left = reachOverlayPos.x + 'px';
-        host.style.top = reachOverlayPos.y + 'px';
-      }
+    // Restore open/collapsed state (default: collapsed = just the tab showing)
+    chrome.storage.local.get('reachSidebarOpen').then(({ reachSidebarOpen }) => {
+      if (reachSidebarOpen) wrap.classList.add('open');
     });
 
-    // Restore collapsed state
-    chrome.storage.local.get('reachOverlayCollapsed').then(({ reachOverlayCollapsed }) => {
-      if (reachOverlayCollapsed) panel.classList.add('collapsed');
+    tab.addEventListener('click', () => {
+      wrap.classList.add('open');
+      try { chrome.storage.local.set({ reachSidebarOpen: true }); } catch (_) {}
+      refreshOverlay();
     });
-
-    // Collapse toggle
-    min.addEventListener('click', e => {
+    close.addEventListener('click', e => {
       e.stopPropagation();
-      panel.classList.toggle('collapsed');
-      chrome.storage.local.set({ reachOverlayCollapsed: panel.classList.contains('collapsed') });
-    });
-    // Click on collapsed panel reopens
-    panel.addEventListener('click', e => {
-      if (panel.classList.contains('collapsed')) {
-        panel.classList.remove('collapsed');
-        chrome.storage.local.set({ reachOverlayCollapsed: false });
-      }
-    });
-
-    // Drag
-    let dragging = false;
-    let startX = 0, startY = 0, origX = 0, origY = 0;
-    hdr.addEventListener('mousedown', e => {
-      if (e.target === min) return;
-      dragging = true;
-      startX = e.clientX; startY = e.clientY;
-      const rect = host.getBoundingClientRect();
-      origX = rect.left; origY = rect.top;
-      e.preventDefault();
-    });
-    window.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      const x = Math.max(8, Math.min(window.innerWidth - 60, origX + (e.clientX - startX)));
-      const y = Math.max(8, Math.min(window.innerHeight - 60, origY + (e.clientY - startY)));
-      host.style.right = 'auto'; host.style.bottom = 'auto';
-      host.style.left = x + 'px'; host.style.top = y + 'px';
-    });
-    window.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
-      const rect = host.getBoundingClientRect();
-      chrome.storage.local.set({ reachOverlayPos: { x: rect.left, y: rect.top } });
+      wrap.classList.remove('open');
+      try { chrome.storage.local.set({ reachSidebarOpen: false }); } catch (_) {}
     });
   }
 
@@ -856,15 +841,21 @@
     $('s-e').textContent = (stats.edges || 0).toLocaleString();
     $('s-m').textContent = (stats.messages || 0).toLocaleString();
     $('s-o').textContent = (stats.posts || 0).toLocaleString();
-    // Status dot
+    // Status dot (both the panel dot and the slim tab dot)
     const dot = $('dot');
-    if (!stats.last_at) { dot.className = 'dot unknown'; }
+    const tabDot = $('tab-dot');
+    const statusLine = $('status-line');
+    let cls, label;
+    if (!stats.last_at) { cls = 'unknown'; label = 'Connected · idle'; }
     else {
       const mins = (Date.now() - new Date(stats.last_at).getTime()) / 60000;
-      if (mins < 5) dot.className = 'dot';
-      else if (mins < 60) dot.className = 'dot idle';
-      else dot.className = 'dot unknown';
+      if (mins < 5) { cls = ''; label = 'Active · indexing'; }
+      else if (mins < 60) { cls = 'idle'; label = `Last seen ${Math.round(mins)}m ago`; }
+      else { cls = 'unknown'; label = 'Connected · idle'; }
     }
+    if (dot) dot.className = 'dot ' + cls;
+    if (tabDot) tabDot.className = 'tab-dot ' + cls;
+    if (statusLine) statusLine.textContent = label;
     await refreshOverlayAction();
   }
 

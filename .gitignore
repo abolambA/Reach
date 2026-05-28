@@ -8,11 +8,3 @@ out/
 *.log
 .vercel
 next-env.d.ts
-
-# Extension cruft
-extension/.DS_Store
-extension/**/.DS_Store
-
-# macOS
-.DS_Store
-**/.DS_Store

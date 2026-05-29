@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reach — LinkedIn network indexer",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Passively indexes LinkedIn pages you naturally browse, into your Reach platform.",
   "permissions": ["storage", "activeTab", "alarms", "tabs"],
   "host_permissions": [

@@ -653,43 +653,17 @@
   // AUTO-WALK INBOX (button-triggered)
   // ============================================================
   let autoWalkRunning = false;
+  // SAFE inbox indexing: read ONLY what's already visible on the messaging page.
+  // NEVER clicks anything — clicking LinkedIn elements risks withdrawing invitations,
+  // sending messages, or other irreversible actions. We just scan the current DOM.
   async function autoWalkInbox(updateUi) {
     if (autoWalkRunning) return;
     autoWalkRunning = true;
-    const maxThreads = 50;
     try {
-      // Restrict to the conversation list region only — never click thread links inside open messages
-      const listContainer =
-        document.querySelector('[class*="conversation"], [aria-label*="onversation"]')?.closest('main, section, aside') ||
-        document.querySelector('main aside') ||
-        document.querySelector('main');
-      if (!listContainer) { updateUi('Cannot find conversation list. Make sure messaging is open.'); return; }
-
-      // Find all unique thread links in the list
-      const threadLinks = listContainer.querySelectorAll('a[href*="/messaging/thread/"]');
-      const uniqueIds = [];
-      const seen = new Set();
-      for (const a of threadLinks) {
-        const m = a.href.match(/thread\/([^/?#]+)/);
-        if (m && !seen.has(m[1])) {
-          seen.add(m[1]);
-          uniqueIds.push({ id: m[1], el: a });
-        }
-      }
-      if (uniqueIds.length === 0) { updateUi('No conversations found in the inbox list.'); return; }
-
-      const toVisit = uniqueIds.slice(0, maxThreads);
-      let i = 0;
-      for (const { id, el } of toVisit) {
-        if (!autoWalkRunning) { updateUi('Stopped.'); break; }
-        i++;
-        updateUi(`Walking ${i}/${toVisit.length}…`);
-        try { el.click(); } catch (_) {}
-        await sleep(rand(4000, 6500));
-        await handleMessagingPage();
-      }
+      updateUi('Reading visible conversations…');
+      await handleMessagingPage();
       const stats = await getStats();
-      updateUi(`Done. ${stats.messages || 0} message events captured.`);
+      updateUi(`Done. ${stats.messages || 0} message previews captured. Scroll the inbox and click again to capture more.`);
       markIndexed(location.pathname);
     } finally {
       autoWalkRunning = false;
@@ -920,25 +894,14 @@
     } else if (/^\/messaging\/?$/.test(path) || /^\/messaging\/thread\/[^/]+\/?$/.test(path)) {
       action.style.display = 'block';
       action.className = 'action';
-      action.textContent = autoWalkRunning ? 'Stop' : 'Auto-index inbox';
-      if (hoursSince !== null && hoursSince < 24 && !autoWalkRunning) {
-        stale.textContent = `Indexed ${hoursSince < 1 ? Math.round(hoursSince*60) + 'm' : Math.round(hoursSince) + 'h'} ago — re-index if you'd like.`;
-      }
+      action.textContent = 'Capture visible conversations';
+      stale.textContent = 'Reads only what\u2019s on screen \u2014 never clicks anything. Scroll to load more, then tap again.';
       action.onclick = () => {
-        if (autoWalkRunning) {
-          autoWalkRunning = false;
-          action.textContent = 'Auto-index inbox';
-          return;
-        }
-        action.textContent = 'Stop';
-        action.classList.add('danger');
+        action.textContent = 'Reading\u2026';
         autoWalkInbox(text => {
           prog.textContent = text;
-          if (!autoWalkRunning) {
-            action.textContent = 'Auto-index inbox';
-            action.classList.remove('danger');
-            refreshOverlay();
-          }
+          action.textContent = 'Capture visible conversations';
+          refreshOverlay();
         });
       };
     } else if (/^\/in\//.test(path)) {

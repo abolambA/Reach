@@ -3,7 +3,6 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { classifyBatch, type ThreadForClassify } from '@/lib/gemini';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {

@@ -3,7 +3,6 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { embedBatch } from '@/lib/gemini';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 // Pulls outbound messages and self-authored posts, embeds any not yet embedded.
 // Safe to call repeatedly — only embeds new items.

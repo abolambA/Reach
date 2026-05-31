@@ -3,7 +3,6 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { checkAuth, cors, logIngest } from '../_helpers';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: cors() });

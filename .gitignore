@@ -6,5 +6,5 @@ out/
 .env*.local
 .DS_Store
 *.log
-.vercel
 next-env.d.ts
+tsconfig.tsbuildinfo

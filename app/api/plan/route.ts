@@ -4,7 +4,6 @@ import { draftMessage } from '@/lib/gemini';
 import { retrieveStyleSamples, getStyleBrief } from '@/lib/rag';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 const MAX_ACTIONS_PER_GOAL = 5;
 const MIN_PRIORITY_GAP = 5;

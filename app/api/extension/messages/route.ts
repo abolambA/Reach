@@ -4,7 +4,6 @@ import { checkAuth, cors, logIngest } from '../_helpers';
 import { DEFAULT_OWNER_ID } from '@/lib/types';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: cors() });

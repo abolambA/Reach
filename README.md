@@ -38,7 +38,7 @@ This is the bridge between *"I have 200 unread messages"* and *"I responded to t
 | Database | Supabase (Postgres) |
 | AI engine | Gemini 2.5 Flash via `@google/genai` |
 | Styling | Tailwind + Fraunces / Geist / JetBrains Mono |
-| Hosting | Vercel |
+| Hosting | Self-hosted (runs entirely on your machine) |
 | Live LinkedIn sync *(optional)* | [Unipile](https://unipile.com) |
 
 ---
@@ -72,53 +72,69 @@ Export everything as a final CSV
 
 ---
 
-## Get it running locally — 5 minutes
+## Run it entirely on your machine
+
+Everything runs locally: the Next.js app, and a full Postgres + Supabase stack in Docker. The only things that leave your machine are Gemini API calls (classification/drafting) and, if you enable it, Unipile.
+
+**Prerequisites:** Node 18+, Docker Desktop running, and the [Supabase CLI](https://supabase.com/docs/guides/cli) (`brew install supabase/tap/supabase` or `npx supabase`).
 
 ```bash
-git clone https://github.com/abolambA/Linkedin-Messages-Concluder-.git lumen
-cd lumen
 npm install
-cp .env.example .env.local
+
+# 1. Bring up local Postgres + Supabase (first run pulls Docker images).
+#    This auto-applies every migration in supabase/migrations/.
+npx supabase start
+
+# 2. Print the local stack's URL + keys.
+npx supabase status
 ```
 
-Fill `.env.local` with your own values:
+`supabase status` prints an **API URL** (`http://127.0.0.1:54321`), an **anon key**, and a **service_role key**. Drop them into `.env.local`:
+
+```ini
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<anon key from `supabase status`>
+SUPABASE_SECRET_KEY=<service_role key from `supabase status`>
+GEMINI_API_KEY=AIza...
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+REACH_INGEST_TOKEN=<openssl rand -hex 32>   # only needed for the Chrome extension
+```
+
+> The local anon/service keys are the standard Supabase demo keys — fine for a tool that only ever runs on `localhost`. They are **not** secrets and must never be used for an internet-facing deployment.
+
+```bash
+npm run dev          # dev server, hot reload
+# or, for a production-style local run:
+npm run build && npm start
+```
+
+Open **http://localhost:3000**.
+
+Local stack housekeeping:
+
+```bash
+npx supabase stop            # shut the stack down (data persists)
+npx supabase db reset        # wipe + re-apply all migrations from scratch
+npx supabase studio          # open the local DB GUI
+```
+
+### Pointing at a hosted Supabase instead
+
+Nothing in the app is tied to the local stack — it reads three env vars. To use a cloud (or any external) Supabase, swap those three values in `.env.local` and apply the migrations once:
 
 ```ini
 NEXT_PUBLIC_SUPABASE_URL=https://<your-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 SUPABASE_SECRET_KEY=sb_secret_...
-GEMINI_API_KEY=AIza...
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
-
-Run the two SQL files in `supabase/migrations/` in your Supabase SQL Editor (in order: `001` then `002`).
 
 ```bash
-npm run dev
+# apply the schema to the remote project (one time)
+npx supabase link --project-ref <your-ref>
+npx supabase db push
 ```
 
-Open **http://localhost:3000**.
-
----
-
-## Deploy to Vercel — 60 seconds via CLI
-
-```bash
-npm i -g vercel
-vercel login
-vercel                   # link + deploy preview in one shot
-
-# push every env var
-vercel env add NEXT_PUBLIC_SUPABASE_URL production
-vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY production
-vercel env add SUPABASE_SECRET_KEY production
-vercel env add GEMINI_API_KEY production
-vercel env add NEXT_PUBLIC_SITE_URL production
-
-vercel --prod
-```
-
-Set `NEXT_PUBLIC_SITE_URL` to the URL Vercel prints after the first deploy.
+No code changes — just restart `npm run dev`.
 
 ---
 

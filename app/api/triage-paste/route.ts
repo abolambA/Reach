@@ -3,7 +3,6 @@ import { classifyBatch, type ThreadForClassify } from '@/lib/gemini';
 import { retrieveStyleSamples, getStyleBrief } from '@/lib/rag';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 // Accepts a pasted message OR a pasted conversation and returns a classification

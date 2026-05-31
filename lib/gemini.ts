@@ -103,7 +103,9 @@ export async function embed(text: string): Promise<number[]> {
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
   const trimmed = text.slice(0, 4000); // be safe with input length
   const res = await ai.models.embedContent({
-    model: 'text-embedding-004',
+    // gemini-embedding-001 at 768 dims (matches the vector(768) schema).
+    // The older text-embedding-004 isn't available on newer-format API keys.
+    model: 'gemini-embedding-001',
     contents: trimmed,
     config: { outputDimensionality: 768 },
   });

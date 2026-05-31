@@ -47,6 +47,230 @@
     });
   }
 
+  // === PAGE ANALYSIS (debug) ===
+  // Captures a cleaned snapshot of the page's HTML and uploads it to the backend
+  // (kind 'debug', mode 'analyze') so the structure can be inspected from the DB
+  // when fixing scraper selectors. Scripts/styles/SVGs and bulky attributes are
+  // stripped to keep it small and readable; text/aria-label/alt are preserved.
+  function captureCleanedHTML() {
+    const root = document.querySelector('main') || document.body;
+    const clone = root.cloneNode(true);
+    clone.querySelectorAll('script,style,svg,noscript,iframe,link,template,picture source').forEach(n => n.remove());
+    clone.querySelectorAll('*').forEach(el => {
+      el.removeAttribute('style');
+      // Drop heavy/base64 attributes but keep semantic ones (href, aria-*, alt, role, class)
+      for (const attr of ['src', 'srcset', 'data-delayed-url', 'data-ghost-url']) el.removeAttribute(attr);
+      for (const a of [...el.attributes]) {
+        if (a.value && a.value.length > 300) el.removeAttribute(a.name);
+      }
+    });
+    let html = (clone.outerHTML || '').replace(/\s+/g, ' ').replace(/>\s+</g, '><');
+    return html.slice(0, 400000); // cap ~400KB
+  }
+
+  async function analyzePage() {
+    const html = captureCleanedHTML();
+    const res = await sendIngest('debug', {
+      mode: 'analyze',
+      path: location.pathname,
+      url: location.href,
+      title: document.title,
+      length: html.length,
+      thread_links: document.querySelectorAll('a[href*="/messaging/thread/"]').length,
+      profile_links: document.querySelectorAll('a[href*="/in/"]').length,
+      html,
+    });
+    return { ok: !!res?.ok, length: html.length };
+  }
+
+  // === LINKEDIN VOYAGER API PROBE (debug) ===
+  // Calls LinkedIn's internal JSON API the same way the page does (same-origin,
+  // session cookies + csrf-token header) and dumps the results to the debug sink,
+  // so we can switch message capture from fragile DOM scraping to a structured API.
+  // Also reports the real endpoints the page already hit (via performance timings),
+  // which reveals the exact current URLs / GraphQL query IDs.
+  async function probeLinkedInApi() {
+    const out = { mode: 'voyager-probe', url: location.href, csrf_present: false, discovered: [], results: [] };
+
+    // CSRF token == the JSESSIONID cookie value (e.g. "ajax:1234567890").
+    let csrf = '';
+    try {
+      const m = document.cookie.match(/JSESSIONID="?([^";]+)"?/);
+      csrf = m ? m[1] : '';
+      out.csrf_present = !!csrf;
+    } catch (_) {}
+
+    // Discover the messaging endpoints the page already requested.
+    try {
+      const entries = performance.getEntriesByType('resource') || [];
+      const urls = entries.map(e => e.name).filter(u => /voyager\/api|messaging|messenger|msg/i.test(u));
+      out.discovered = [...new Set(urls)].slice(0, 50);
+    } catch (_) {}
+
+    const headers = {
+      'accept': 'application/vnd.linkedin.normalized+json+2.1',
+      'csrf-token': csrf,
+      'x-restli-protocol-version': '2.0.0',
+      'x-li-lang': 'en_US',
+    };
+    // Candidate endpoints (LinkedIn shifts these; we try a few + anything discovered).
+    const candidates = [
+      '/voyager/api/messaging/conversations?keyVersion=LEGACY_INBOX',
+      '/voyager/api/messaging/conversations',
+      ...out.discovered.filter(u => /conversation/i.test(u)).slice(0, 3),
+    ];
+    for (const path of [...new Set(candidates)]) {
+      try {
+        const res = await fetch(path, { headers, credentials: 'include' });
+        const text = await res.text();
+        // Keep the full body for the messaging GraphQL endpoints so we can design
+        // the parser; truncate everything else.
+        const cap = /messengerConversations|messengerMessages/i.test(path) ? 380000 : 2000;
+        out.results.push({ path, status: res.status, ok: res.ok, len: text.length, bodySample: text.slice(0, cap) });
+      } catch (e) {
+        out.results.push({ path, error: String(e) });
+      }
+    }
+    await sendIngest('debug', out);
+    return { ok: true, tried: out.results.length, discovered: out.discovered.length, csrf: out.csrf_present };
+  }
+
+  // === RELIABLE MESSAGE CAPTURE VIA LINKEDIN'S VOYAGER API ===
+  // Instead of scraping the DOM, call the same GraphQL endpoint the page uses and
+  // parse LinkedIn's normalized JSON. Returns structured conversations with real
+  // participant URNs, message bodies, and timestamps. Endpoint + mailbox URN are
+  // discovered from the page's own network calls (performance timings), so this
+  // survives LinkedIn redesigns far better than CSS selectors.
+  function parseConversationsResponse(data) {
+    const inc = (data && data.included) || [];
+    const nameOf = p => {
+      const mem = p.participantType && p.participantType.member;
+      if (mem) return [mem.firstName && mem.firstName.text, mem.lastName && mem.lastName.text].filter(Boolean).join(' ').trim();
+      const org = p.participantType && p.participantType.organization;
+      if (org && org.name && org.name.text) return org.name.text.trim();
+      return null;
+    };
+    const partByRef = {};
+    for (const x of inc) {
+      if (x.$type === 'com.linkedin.messenger.MessagingParticipant') {
+        const mem = x.participantType && x.participantType.member;
+        partByRef[x.entityUrn] = {
+          urn: x.hostIdentityUrn || null,
+          name: nameOf(x),
+          profileUrl: mem && mem.profileUrl ? mem.profileUrl : (x.hostIdentityUrn ? `https://www.linkedin.com/in/${x.hostIdentityUrn.split(':').pop()}/` : null),
+        };
+      }
+    }
+    const msgsByConv = {};
+    for (const x of inc) {
+      if (x.$type === 'com.linkedin.messenger.Message') {
+        const c = x['*conversation'];
+        if (!c) continue;
+        (msgsByConv[c] = msgsByConv[c] || []).push(x);
+      }
+    }
+    // Self = the fsd_profile embedded in every conversation URN.
+    let selfFsd = null;
+    const anyConv = inc.find(x => x.$type === 'com.linkedin.messenger.Conversation');
+    if (anyConv) { const m = (anyConv.entityUrn || '').match(/fsd_profile:([^,)]+)/); selfFsd = m ? m[1] : null; }
+
+    const threads = [];
+    const peopleMap = {};
+    for (const x of inc) {
+      if (x.$type !== 'com.linkedin.messenger.Conversation') continue;
+      const convUrn = x.entityUrn;
+      const tid = ((x.conversationUrl || '').match(/thread\/([^/?#]+)/) || [])[1] || convUrn;
+      const refs = x['*conversationParticipants'] || [];
+      const others = refs.filter(r => !selfFsd || !r.includes(selfFsd));
+      const names = [], urns = [];
+      for (const r of others) {
+        const p = partByRef[r];
+        if (!p) continue;
+        if (p.name) names.push(p.name);
+        if (p.urn) {
+          urns.push(p.urn);
+          if (!peopleMap[p.urn]) peopleMap[p.urn] = { urn: p.urn, public_id: p.urn.split(':').pop(), name: p.name || null, headline: null, profile_url: p.profileUrl, profile_img: null };
+        }
+      }
+      const msgs = (msgsByConv[convUrn] || [])
+        .slice()
+        .sort((a, b) => (a.deliveredAt || 0) - (b.deliveredAt || 0))
+        .map(mm => {
+          const senderRef = mm['*sender'] || mm['*actor'];
+          const isSelf = senderRef && selfFsd && senderRef.includes(selfFsd);
+          const sp = senderRef ? partByRef[senderRef] : null;
+          return {
+            content: (mm.body && mm.body.text) || '',
+            direction: isSelf ? 'outbound' : 'inbound',
+            sender: isSelf ? null : (sp ? sp.name : null),
+            sender_urn: isSelf ? null : (sp ? sp.urn : null),
+            sent_at: mm.deliveredAt ? new Date(mm.deliveredAt).toISOString() : null,
+          };
+        })
+        .filter(m => m.content);
+      threads.push({
+        external_id: tid,
+        title: names.join(', ') || x.title || 'Conversation',
+        participants: names,
+        participant_urns: urns,
+        messages: msgs,
+      });
+    }
+    return { threads, people: Object.values(peopleMap) };
+  }
+
+  async function captureViaApi(updateUi) {
+    const ui = updateUi || (() => {});
+    const m = document.cookie.match(/JSESSIONID="?([^";]+)"?/);
+    const csrf = m ? m[1] : '';
+    if (!csrf) return { ok: false, error: 'no-csrf' };
+
+    // Discover the conversations endpoint (queryId + mailboxUrn) the page already used.
+    let convUrl = null;
+    try {
+      const entries = performance.getEntriesByType('resource') || [];
+      convUrl = entries.map(e => e.name).find(u => /voyagerMessagingGraphQL\/graphql\?queryId=messengerConversations/.test(u));
+    } catch (_) {}
+    if (!convUrl) return { ok: false, error: 'endpoint-not-found' };
+
+    ui('Fetching conversations from LinkedIn API…');
+    const headers = {
+      'accept': 'application/vnd.linkedin.normalized+json+2.1',
+      'csrf-token': csrf,
+      'x-restli-protocol-version': '2.0.0',
+      'x-li-lang': 'en_US',
+    };
+    let data;
+    try {
+      const res = await fetch(convUrl, { headers, credentials: 'include' });
+      if (!res.ok) return { ok: false, error: 'http-' + res.status };
+      data = await res.json();
+    } catch (e) { return { ok: false, error: String(e) }; }
+
+    const { threads, people } = parseConversationsResponse(data);
+    try {
+      await sendIngest('debug', { mode: 'api-capture', threads_found: threads.length, people_found: people.length, sample: threads.slice(0, 3).map(t => ({ t: t.title, m: t.messages.length })) });
+    } catch (_) {}
+    if (people.length) await sendIngest('people', { people });
+    if (threads.length) await sendIngest('messages', { threads });
+    ui(`Captured ${threads.length} conversations via API.`);
+    return { ok: true, threads: threads.length, people: people.length };
+  }
+
+  // Listen for explicit debug requests from the popup.
+  try {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg?.type === 'reach:analyze_page') {
+        analyzePage().then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e) }));
+        return true; // async response
+      }
+      if (msg?.type === 'reach:probe_api') {
+        probeLinkedInApi().then(sendResponse).catch(e => sendResponse({ ok: false, error: String(e) }));
+        return true; // async response
+      }
+    });
+  } catch (_) {}
+
   async function getIndexedMap() {
     const m = await safeSendMessage({ type: 'reach:get_indexed_at' });
     return m || {};
@@ -410,166 +634,126 @@
     }
   }
 
-  async function handleMessagingPage() {
-    // STRICT URL CHECK: only run on canonical messaging routes. Reject:
-    //   - /messaging/notifications/ (LinkedIn notification panel disguised as messaging)
-    //   - /messaging/compose/ (new message composer)
-    //   - any nested route that isn't the inbox or a thread view
+  async function handleMessagingPage(updateUi, doScroll) {
+    // Only run on canonical messaging routes (inbox or a thread view).
     const path = location.pathname;
     const isInbox = /^\/messaging\/?$/.test(path);
     const isThread = /^\/messaging\/thread\/[^/]+\/?$/.test(path);
     if (!isInbox && !isThread) {
-      console.log(`[Reach 0.3] Messaging handler skipped — not a conversation route: ${path}`);
-      return;
+      console.log(`[Reach] messaging handler skipped — not a conversation route: ${path}`);
+      return { threads: 0, people: 0 };
     }
+    const ui = updateUi || (() => {});
 
-    const threads = [];
-    const people = [];
-    const seenPeople = new Set();
-    const seenThreads = new Set();
+    const threadsMap = new Map();
+    const peopleMap = new Map();
+    let diagReason = {};
+    const logReject = r => { diagReason[r] = (diagReason[r] || 0) + 1; };
 
-    // === CONVERSATION LIST (left rail) ===
-    const listContainer =
-      document.querySelector('[class*="conversation"], [aria-label*="onversation"]')?.closest('main, section, aside') ||
-      document.querySelector('main') ||
-      document.body;
+    const txt = (el, sel) => {
+      const n = el.querySelector(sel);
+      return n ? (n.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    };
+    const slug = s => 'name-' + s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 
-    const threadLinks = listContainer.querySelectorAll('a[href*="/messaging/thread/"]');
-    let diagSeen = 0, diagReason = {};
-    function logReject(reason) {
-      diagReason[reason] = (diagReason[reason] || 0) + 1;
-    }
-
-    threadLinks.forEach(link => {
-      try {
-        const tidMatch = link.href.match(/\/messaging\/thread\/([^/?#]+)/);
-        if (!tidMatch) { logReject('no-tid'); return; }
-        const threadId = tidMatch[1];
-        if (seenThreads.has(threadId)) { logReject('dupe'); return; }
-        diagSeen++;
-
-        // Walk up to find the card boundary.
-        let card = link;
-        while (card.parentElement && card !== document.body) {
-          const parent = card.parentElement;
-          const parentThreadLinks = parent.querySelectorAll('a[href*="/messaging/thread/"]');
-          const parentTids = new Set();
-          for (const l of parentThreadLinks) {
-            const m = l.href.match(/\/messaging\/thread\/([^/?#]+)/);
-            if (m) parentTids.add(m[1]);
-          }
-          if (parentTids.size <= 1) {
-            card = parent;
-            continue;
-          }
-          break;
-        }
-        if (!card || card === document.body) { logReject('walked-to-body'); return; }
-
-        const finalThreadLinks = card.querySelectorAll('a[href*="/messaging/thread/"]');
-        const finalTids = new Set();
-        for (const l of finalThreadLinks) {
-          const m = l.href.match(/\/messaging\/thread\/([^/?#]+)/);
-          if (m) finalTids.add(m[1]);
-        }
-        if (finalTids.size !== 1) { logReject('multi-thread-final'); return; }
-        const cardTextLen = (card.textContent || '').trim().length;
-        if (cardTextLen > 1500) { logReject('text-too-long'); return; }
-
-        // === Reject NOTIFICATION-style content ===
-        const cardText = (card.textContent || '');
-        if (/\bsent the following message/i.test(cardText)) { logReject('notif-sent-msg'); return; }
-        if (/\bview\s+\w+'?s\s+profile\b/i.test(cardText)) { logReject('notif-view-profile'); return; }
-        if (/\bnotifications? total\b/i.test(cardText)) { logReject('notif-total'); return; }
-        if (/\b\d+\s+(new\s+)?notifications?\b/i.test(cardText)) { logReject('notif-count'); return; }
-
-        // Gather text nodes AND aria-label/alt attributes (names may live there)
-        const texts = [];
+    // Scrape every conversation card currently rendered in the DOM into the maps.
+    // LinkedIn virtualizes the list (only ~10-20 cards exist at once and off-screen
+    // ones become `--occluded` empty shells), so this is called repeatedly while scrolling.
+    function scrapeVisible() {
+      document.querySelectorAll('li.msg-conversation-listitem').forEach(card => {
         try {
-          const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
-          while (walker.nextNode()) {
-            const t = (walker.currentNode.textContent || '').trim();
-            if (t.length >= 1 && t.length < 300) texts.push(t);
+          if (card.classList.contains('msg-conversation-card--occluded')) return; // virtualized placeholder
+          let name =
+            txt(card, '.msg-conversation-listitem__participant-names') ||
+            txt(card, '.msg-conversation-card__participant-names');
+          if (!name) { const im = card.querySelector('img[alt]'); if (im) name = (im.getAttribute('alt') || '').trim(); }
+          if (!name) {
+            const lbl = card.querySelector('[aria-label^="Select conversation with"]');
+            if (lbl) name = (lbl.getAttribute('aria-label') || '').replace(/^Select conversation with\s*/i, '').trim();
           }
-          // Also include aria-label and alt attributes (modern LinkedIn uses these for screen readers)
-          card.querySelectorAll('[aria-label]').forEach(el => {
-            const a = el.getAttribute('aria-label')?.trim();
-            if (a && a.length >= 2 && a.length < 300) texts.push(a);
-          });
-          card.querySelectorAll('img[alt]').forEach(el => {
-            const a = el.getAttribute('alt')?.trim();
-            if (a && a.length >= 2 && a.length < 300) texts.push(a);
-          });
-        } catch (_) {}
+          if (!name || name.length < 1 || name.length > 120) { logReject('no-name'); return; }
 
-        const NOISE = /^(Status is online|Active now|Online|·|—|–|\.{2,3}|\d+(st|nd|rd|th)?|Focused|Jobs|Unread|Connections?|InMail|Starred|All messages|Filter|Sort|notifications total|new notification|view profile|Open|Open conversation|Open chat|Conversation with)$/i;
-        const filtered = texts.filter(t => !NOISE.test(t) && !/^[\s·•\-—–]+$/.test(t));
-        const uniq = [];
-        for (const t of filtered) {
-          if (uniq[uniq.length - 1] !== t) uniq.push(t);
-        }
+          let snippet = txt(card, '.msg-conversation-card__message-snippet') || txt(card, '[class*="message-snippet"]');
+          let direction = 'inbound', sender = name;
+          if (/^you:\s*/i.test(snippet)) { direction = 'outbound'; sender = null; snippet = snippet.replace(/^you:\s*/i, '').trim(); }
 
-        const senderName = uniq[0] || null;
-        let preview = null;
-        for (let i = 1; i < uniq.length; i++) {
-          if (uniq[i] === senderName) continue;
-          if (/^\w{3}\s+\d{1,2}$/.test(uniq[i])) continue;
-          if (/^\d+(st|nd|rd|th)?$/.test(uniq[i])) continue;
-          if (!preview || uniq[i].length > preview.length) preview = uniq[i];
-        }
-
-        if (!senderName || senderName.length < 2 || senderName.length > 100) { logReject('no-sender'); return; }
-        if (/^(connections?|focused|jobs|unread|inmail|starred|messaging|sort by:?|filter|all|recently|search|notifications?)$/i.test(senderName)) { logReject('ui-label'); return; }
-        if (/\d+\s+notifications?/i.test(senderName)) { logReject('notif-count-name'); return; }
-        if (senderName === senderName.toLowerCase() && /\s/.test(senderName)) { logReject('all-lowercase'); return; }
-        if (/:/.test(senderName)) { logReject('colon-in-name'); return; }
-
-        seenThreads.add(threadId);
-
-        let senderUrn = null, senderPublicId = null;
-        const profileLink = card.querySelector('a[href*="/in/"]');
-        if (profileLink) {
-          const m = profileLink.href.match(/\/in\/([^/?#]+)/);
-          if (m) {
-            senderPublicId = decodeURIComponent(m[1]);
-            senderUrn = `urn:li:fsd_profile:${senderPublicId}`;
-            if (!seenPeople.has(senderUrn)) {
-              seenPeople.add(senderUrn);
-              const img = card.querySelector('img');
-              people.push({
-                urn: senderUrn,
-                public_id: senderPublicId,
-                name: senderName,
-                headline: preview ? preview.slice(0, 100) : null,
-                profile_url: `https://www.linkedin.com/in/${senderPublicId}/`,
-                profile_img: img?.src || null,
-              });
-            }
+          let urn = null, publicId = null, profileUrl = null;
+          const inLink = card.querySelector('a[href*="/in/"]');
+          if (inLink) {
+            const m = (inLink.getAttribute('href') || '').match(/\/in\/([^/?#]+)/);
+            if (m) { publicId = decodeURIComponent(m[1]); urn = `urn:li:fsd_profile:${publicId}`; profileUrl = `https://www.linkedin.com/in/${publicId}/`; }
           }
-        }
 
-        threads.push({
-          external_id: threadId,
-          title: senderName,
-          participants: [senderName],
-          participant_urns: senderUrn ? [senderUrn] : [],
-          messages: preview ? [{
-            content: preview,
-            direction: 'inbound',
-            sent_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-            sender: senderName,
-            sender_urn: senderUrn,
-          }] : [],
-        });
-      } catch (e) {
-        /* skip thread */
+          const externalId = publicId ? `p:${publicId}` : slug(name);
+          if (threadsMap.has(externalId)) return;
+
+          const img = card.querySelector('img[src]');
+          if (urn && !peopleMap.has(urn)) {
+            peopleMap.set(urn, { urn, public_id: publicId, name, headline: null, profile_url: profileUrl, profile_img: img ? img.getAttribute('src') : null });
+          }
+          threadsMap.set(externalId, {
+            external_id: externalId,
+            title: name,
+            participants: [name],
+            participant_urns: urn ? [urn] : [],
+            messages: snippet ? [{ content: snippet, direction, sender, sender_urn: direction === 'inbound' ? urn : null, sent_at: null }] : [],
+          });
+        } catch (_) { logReject('threw'); }
+      });
+    }
+
+    // Find the scrollable element wrapping the conversation list.
+    function findScroller() {
+      const ul = document.querySelector('ul.msg-conversations-container__conversations-list');
+      let el = ul;
+      while (el && el !== document.body) {
+        try { if (el.scrollHeight > el.clientHeight + 40 && /auto|scroll/.test(getComputedStyle(el).overflowY)) return el; } catch (_) {}
+        el = el.parentElement;
       }
-    });
+      return ul;
+    }
 
-    console.log(`[Reach 0.3] Messaging handler: ${threads.length} threads, ${people.length} senders (path: ${path}) | links seen: ${diagSeen}, rejected:`, diagReason);
+    scrapeVisible();
+
+    // Auto-scroll the list to force LinkedIn to render the rest, accumulating as we go.
+    if (doScroll) {
+      const scroller = findScroller();
+      if (scroller) {
+        try { scroller.scrollTop = 0; } catch (_) {}
+        await sleep(350);
+        scrapeVisible();
+        let stable = 0;
+        for (let i = 0; i < 120 && stable < 4; i++) {
+          const before = threadsMap.size;
+          scroller.scrollTop = Math.min(scroller.scrollTop + Math.max(scroller.clientHeight * 0.7, 300), scroller.scrollHeight);
+          await sleep(rand(450, 850));
+          scrapeVisible();
+          const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
+          ui(`Capturing… ${threadsMap.size} conversations`);
+          if (threadsMap.size === before) stable++; else stable = 0;
+          if (atBottom && threadsMap.size === before) break;
+        }
+      }
+    }
+
+    const threads = [...threadsMap.values()];
+    const people = [...peopleMap.values()];
+    console.log(`[Reach] messaging: ${threads.length} conversations, ${people.length} people`);
+
+    try {
+      await sendIngest('debug', {
+        mode: 'messaging-result',
+        path,
+        threads_found: threads.length,
+        people_found: people.length,
+        rejected: diagReason,
+        sample_names: threads.slice(0, 5).map(t => t.title),
+      });
+    } catch (_) {}
 
     if (people.length > 0) await sendIngest('people', { people });
     if (threads.length > 0) await sendIngest('messages', { threads });
+    return { threads: threads.length, people: people.length };
   }
 
   async function handleFeedPage() {
@@ -660,10 +844,14 @@
     if (autoWalkRunning) return;
     autoWalkRunning = true;
     try {
-      updateUi('Reading visible conversations…');
-      await handleMessagingPage();
-      const stats = await getStats();
-      updateUi(`Done. ${stats.messages || 0} message previews captured. Scroll the inbox and click again to capture more.`);
+      // Preferred: structured Voyager API (reliable, full data). Falls back to DOM scrape.
+      updateUi('Capturing via LinkedIn API…');
+      let res = await captureViaApi(updateUi);
+      if (!res || !res.ok || (res.threads || 0) === 0) {
+        updateUi(`API unavailable (${res && res.error ? res.error : 'no data'}) — scraping the visible list…`);
+        res = await handleMessagingPage(updateUi, true); // doScroll = true
+      }
+      updateUi(`Done. ${res?.threads || 0} conversations captured.`);
       markIndexed(location.pathname);
     } finally {
       autoWalkRunning = false;

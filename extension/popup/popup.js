@@ -61,4 +61,44 @@ $('open-app').addEventListener('click', async (e) => {
   if (reachApi) chrome.tabs.create({ url: reachApi });
 });
 
+$('analyze').addEventListener('click', () => {
+  $('analyze-status').textContent = 'Analyzing page…';
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    const tab = tabs[0];
+    if (!tab || !/linkedin\.com/.test(tab.url || '')) {
+      $('analyze-status').textContent = 'Open a LinkedIn tab first.';
+      return;
+    }
+    chrome.tabs.sendMessage(tab.id, { type: 'reach:analyze_page' }, res => {
+      if (chrome.runtime.lastError) {
+        $('analyze-status').textContent = 'Reload the LinkedIn tab, then retry.';
+        return;
+      }
+      $('analyze-status').textContent = res?.ok
+        ? `Sent ${Math.round((res.length || 0) / 1000)}KB to Reach.`
+        : 'Analyze failed (check token).';
+    });
+  });
+});
+
+$('probe').addEventListener('click', () => {
+  $('analyze-status').textContent = 'Probing LinkedIn API…';
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    const tab = tabs[0];
+    if (!tab || !/linkedin\.com/.test(tab.url || '')) {
+      $('analyze-status').textContent = 'Open a LinkedIn tab first.';
+      return;
+    }
+    chrome.tabs.sendMessage(tab.id, { type: 'reach:probe_api' }, res => {
+      if (chrome.runtime.lastError) {
+        $('analyze-status').textContent = 'Reload the LinkedIn tab, then retry.';
+        return;
+      }
+      $('analyze-status').textContent = res?.ok
+        ? `Probed ${res.tried} endpoints, ${res.discovered} discovered (csrf: ${res.csrf ? 'yes' : 'no'}).`
+        : 'Probe failed.';
+    });
+  });
+});
+
 init();

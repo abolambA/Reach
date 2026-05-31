@@ -31,6 +31,12 @@ export function createAdminClient() {
   return createAdminBase(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SECRET_KEY!,
-    { auth: { persistSession: false } },
+    {
+      auth: { persistSession: false },
+      // Next.js caches global fetch in Server Components, which made Supabase
+      // reads serve stale results (e.g. home-page counts frozen at 0 from the
+      // first render before any data existed). Force every admin query fresh.
+      global: { fetch: (url: any, opts: any) => fetch(url, { ...opts, cache: 'no-store' }) },
+    },
   );
 }
